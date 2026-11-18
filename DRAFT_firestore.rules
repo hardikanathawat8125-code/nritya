@@ -1,0 +1,1057 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 3: Global Security Primitives
+    // -------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'hardikanathawat8125@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidOptionalString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidStringList(listVal, maxItems) {
+      return listVal is list &&
+        listVal.size() <= maxItems &&
+        (listVal.size() == 0 || (listVal[0] is string && listVal[0].size() <= 120));
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // -------------------------------------------------------------------------
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'role', 'danceForms', 'experienceLevel',
+          'bio', 'verificationStatus', 'isFeatured', 'accountStatus',
+          'privacyShowLocation', 'privacyAllowFollows',
+          'followersCount', 'followingCount', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'displayName', 'role', 'danceForms', 'experienceLevel',
+          'bio', 'location', 'photoURL', 'portfolioNote', 'repertoireHighlights',
+          'verificationStatus', 'isFeatured', 'accountStatus',
+          'privacyShowLocation', 'privacyAllowFollows',
+          'followersCount', 'followingCount', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.uid == userId &&
+        isValidString(data.displayName, 2, 80) &&
+        data.role in ['dancer', 'guru', 'organizer', 'enthusiast'] &&
+        isValidStringList(data.danceForms, 8) &&
+        data.experienceLevel in ['Beginner', 'Intermediate', 'Advanced', 'Senior Practitioner', 'Guru / Acharya'] &&
+        isValidString(data.bio, 0, 1000) &&
+        isValidOptionalString(data, 'location', 120) &&
+        isValidOptionalString(data, 'photoURL', 500) &&
+        isValidOptionalString(data, 'portfolioNote', 1200) &&
+        (!('repertoireHighlights' in data) || isValidStringList(data.repertoireHighlights, 10)) &&
+        data.verificationStatus in ['none', 'pending', 'verified', 'rejected'] &&
+        data.isFeatured is bool &&
+        data.accountStatus in ['active', 'suspended'] &&
+        data.privacyShowLocation is bool &&
+        data.privacyAllowFollows is bool &&
+        data.followersCount is int && data.followersCount >= 0 &&
+        data.followingCount is int && data.followingCount >= 0 &&
+        data.isSample is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'privacyProfileVisibility', 'emailNotifications', 'blockedUserIds', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'privacyProfileVisibility', 'emailNotifications', 'blockedUserIds', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == userId &&
+        isValidString(data.email, 3, 200) &&
+        data.privacyProfileVisibility in ['public', 'community'] &&
+        data.emailNotifications is bool &&
+        isValidStringList(data.blockedUserIds, 100) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSavedItem(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'itemType', 'itemId', 'title', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'itemType', 'itemId', 'title', 'subtitle', 'danceForm', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.userId) &&
+        data.userId == userId &&
+        data.itemType in ['post', 'masterclass', 'event', 'gathering'] &&
+        isValidId(data.itemId) &&
+        isValidString(data.title, 1, 160) &&
+        isValidOptionalString(data, 'subtitle', 160) &&
+        isValidOptionalString(data, 'danceForm', 60) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidVerificationRequest(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'requestedRole', 'lineageOrOrg', 'credentialsSummary', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'userName', 'requestedRole', 'lineageOrOrg', 'credentialsSummary', 'referenceLink', 'status', 'adminNotes', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.userId) &&
+        isValidString(data.userName, 2, 80) &&
+        data.requestedRole in ['guru', 'organizer'] &&
+        isValidString(data.lineageOrOrg, 2, 200) &&
+        isValidString(data.credentialsSummary, 10, 1200) &&
+        isValidOptionalString(data, 'referenceLink', 500) &&
+        data.status in ['pending', 'approved', 'rejected'] &&
+        isValidOptionalString(data, 'adminNotes', 500) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFollow(data) {
+      return data.keys().hasAll(['followerId', 'followingId', 'createdAt']) &&
+        data.keys().hasOnly(['followerId', 'followingId', 'createdAt']) &&
+        isValidId(data.followerId) &&
+        isValidId(data.followingId) &&
+        data.followerId != data.followingId &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidCommunityPost(data) {
+      return data.keys().hasAll([
+          'id', 'authorId', 'authorName', 'authorRole', 'authorVerified',
+          'title', 'content', 'category', 'danceForm',
+          'likesCount', 'commentsCount', 'savesCount',
+          'moderationStatus', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'authorId', 'authorName', 'authorRole', 'authorPhoto', 'authorVerified',
+          'title', 'content', 'category', 'danceForm', 'mediaUrl', 'mediaCaption',
+          'likesCount', 'commentsCount', 'savesCount',
+          'moderationStatus', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.authorId) &&
+        isValidString(data.authorName, 2, 80) &&
+        data.authorRole in ['dancer', 'guru', 'organizer', 'enthusiast'] &&
+        isValidOptionalString(data, 'authorPhoto', 500) &&
+        data.authorVerified is bool &&
+        isValidString(data.title, 3, 160) &&
+        isValidString(data.content, 10, 3000) &&
+        data.category in ['Dance Journey', 'Achievement', 'Practice Reflection', 'Abhinaya & Technique', 'Question'] &&
+        isValidString(data.danceForm, 2, 60) &&
+        isValidOptionalString(data, 'mediaUrl', 500) &&
+        isValidOptionalString(data, 'mediaCaption', 200) &&
+        data.likesCount is int && data.likesCount >= 0 &&
+        data.commentsCount is int && data.commentsCount >= 0 &&
+        data.savesCount is int && data.savesCount >= 0 &&
+        data.moderationStatus in ['published', 'flagged', 'hidden'] &&
+        data.isSample is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPostComment(data, postId) {
+      return data.keys().hasAll(['id', 'postId', 'authorId', 'authorName', 'content', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'postId', 'authorId', 'authorName', 'authorPhoto', 'content', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.postId) &&
+        data.postId == postId &&
+        isValidId(data.authorId) &&
+        isValidString(data.authorName, 2, 80) &&
+        isValidOptionalString(data, 'authorPhoto', 500) &&
+        isValidString(data.content, 1, 1000) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidPostLike(data, postId, userId) {
+      return data.keys().hasAll(['userId', 'postId', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'postId', 'createdAt']) &&
+        isValidId(data.userId) &&
+        data.userId == userId &&
+        isValidId(data.postId) &&
+        data.postId == postId &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidMasterclass(data) {
+      return data.keys().hasAll([
+          'id', 'guruId', 'guruName', 'title', 'description', 'danceForm',
+          'difficulty', 'date', 'time', 'durationMinutes', 'capacity',
+          'registeredCount', 'meetingLink', 'recordingAvailable',
+          'status', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'guruId', 'guruName', 'guruBio', 'guruPhoto', 'title', 'description',
+          'danceForm', 'difficulty', 'date', 'time', 'durationMinutes', 'capacity',
+          'registeredCount', 'meetingLink', 'recordingAvailable', 'recordingNote',
+          'coverImage', 'status', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.guruId) &&
+        isValidString(data.guruName, 2, 80) &&
+        isValidOptionalString(data, 'guruBio', 600) &&
+        isValidOptionalString(data, 'guruPhoto', 500) &&
+        isValidString(data.title, 3, 160) &&
+        isValidString(data.description, 10, 2000) &&
+        isValidString(data.danceForm, 2, 60) &&
+        data.difficulty in ['Beginner', 'Intermediate', 'Advanced', 'All Levels'] &&
+        isValidString(data.date, 4, 40) &&
+        isValidString(data.time, 3, 40) &&
+        data.durationMinutes is int && data.durationMinutes >= 15 && data.durationMinutes <= 240 &&
+        data.capacity is int && data.capacity >= 1 && data.capacity <= 500 &&
+        data.registeredCount is int && data.registeredCount >= 0 && data.registeredCount <= data.capacity &&
+        isValidString(data.meetingLink, 5, 500) &&
+        data.recordingAvailable is bool &&
+        isValidOptionalString(data, 'recordingNote', 300) &&
+        isValidOptionalString(data, 'coverImage', 500) &&
+        data.status in ['scheduled', 'completed', 'cancelled'] &&
+        data.isSample is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidClassRegistration(data) {
+      return data.keys().hasAll(['id', 'classId', 'guruId', 'userId', 'userName', 'classTitle', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'classId', 'guruId', 'userId', 'userName', 'classTitle', 'danceForm', 'classDate', 'classTime', 'status', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.classId) &&
+        isValidId(data.guruId) &&
+        isValidId(data.userId) &&
+        isValidString(data.userName, 2, 80) &&
+        isValidString(data.classTitle, 2, 160) &&
+        isValidOptionalString(data, 'danceForm', 60) &&
+        isValidOptionalString(data, 'classDate', 40) &&
+        isValidOptionalString(data, 'classTime', 40) &&
+        data.status in ['registered', 'cancelled'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidClassFeedback(data) {
+      return data.keys().hasAll(['id', 'classId', 'userId', 'userName', 'rating', 'comment', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'classId', 'userId', 'userName', 'rating', 'comment', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.classId) &&
+        isValidId(data.userId) &&
+        isValidString(data.userName, 2, 80) &&
+        data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+        isValidString(data.comment, 3, 1000) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidDanceEvent(data) {
+      return data.keys().hasAll([
+          'id', 'organizerId', 'organizerName', 'title', 'description',
+          'eventType', 'danceForm', 'format', 'date', 'registrationDeadline',
+          'eligibility', 'applicationProcess', 'moderationStatus',
+          'applicationsCount', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'organizerId', 'organizerName', 'title', 'description',
+          'eventType', 'danceForm', 'format', 'date', 'registrationDeadline',
+          'city', 'state', 'venue', 'eligibility', 'applicationProcess',
+          'coverImage', 'moderationStatus', 'applicationsCount', 'isSample',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.organizerId) &&
+        isValidString(data.organizerName, 2, 120) &&
+        isValidString(data.title, 3, 160) &&
+        isValidString(data.description, 10, 2500) &&
+        data.eventType in ['Performance', 'Competition', 'Audition', 'Festival', 'Workshop', 'Scholarship'] &&
+        isValidString(data.danceForm, 2, 60) &&
+        data.format in ['In-Person', 'Online', 'Hybrid'] &&
+        isValidString(data.date, 4, 40) &&
+        isValidString(data.registrationDeadline, 4, 40) &&
+        isValidOptionalString(data, 'city', 80) &&
+        isValidOptionalString(data, 'state', 80) &&
+        isValidOptionalString(data, 'venue', 200) &&
+        isValidString(data.eligibility, 2, 600) &&
+        isValidString(data.applicationProcess, 2, 800) &&
+        isValidOptionalString(data, 'coverImage', 500) &&
+        data.moderationStatus in ['pending', 'approved', 'rejected'] &&
+        data.applicationsCount is int && data.applicationsCount >= 0 &&
+        data.isSample is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidEventApplication(data) {
+      return data.keys().hasAll([
+          'id', 'eventId', 'eventTitle', 'organizerId', 'applicantId',
+          'applicantName', 'applicationType', 'experienceSummary',
+          'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'eventId', 'eventTitle', 'organizerId', 'applicantId',
+          'applicantName', 'applicantDanceForm', 'applicationType',
+          'experienceSummary', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.eventId) &&
+        isValidString(data.eventTitle, 2, 160) &&
+        isValidId(data.organizerId) &&
+        isValidId(data.applicantId) &&
+        isValidString(data.applicantName, 2, 80) &&
+        isValidOptionalString(data, 'applicantDanceForm', 60) &&
+        data.applicationType in ['Application', 'Expression of Interest'] &&
+        isValidString(data.experienceSummary, 10, 1000) &&
+        data.status in ['submitted', 'reviewed', 'shortlisted', 'withdrawn'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGathering(data) {
+      return data.keys().hasAll([
+          'id', 'hostId', 'hostName', 'title', 'topic', 'description',
+          'date', 'time', 'durationMinutes', 'capacity', 'registeredCount',
+          'discussionPrompts', 'meetingLink', 'safetyGuidelines',
+          'status', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'hostId', 'hostName', 'hostPhoto', 'title', 'topic', 'description',
+          'danceForm', 'date', 'time', 'durationMinutes', 'capacity', 'registeredCount',
+          'discussionPrompts', 'meetingLink', 'safetyGuidelines', 'coverImage',
+          'status', 'isSample', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.hostId) &&
+        isValidString(data.hostName, 2, 80) &&
+        isValidOptionalString(data, 'hostPhoto', 500) &&
+        isValidString(data.title, 3, 160) &&
+        isValidString(data.topic, 3, 160) &&
+        isValidString(data.description, 10, 2000) &&
+        isValidOptionalString(data, 'danceForm', 60) &&
+        isValidString(data.date, 4, 40) &&
+        isValidString(data.time, 3, 40) &&
+        data.durationMinutes is int && data.durationMinutes >= 15 && data.durationMinutes <= 240 &&
+        data.capacity is int && data.capacity >= 1 && data.capacity <= 300 &&
+        data.registeredCount is int && data.registeredCount >= 0 && data.registeredCount <= data.capacity &&
+        isValidStringList(data.discussionPrompts, 6) &&
+        isValidString(data.meetingLink, 5, 500) &&
+        isValidString(data.safetyGuidelines, 5, 600) &&
+        isValidOptionalString(data, 'coverImage', 500) &&
+        data.status in ['upcoming', 'completed', 'cancelled'] &&
+        data.isSample is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGatheringRegistration(data) {
+      return data.keys().hasAll(['id', 'gatheringId', 'gatheringTitle', 'hostId', 'userId', 'userName', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'gatheringId', 'gatheringTitle', 'hostId', 'userId', 'userName', 'gatheringDate', 'gatheringTime', 'status', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.gatheringId) &&
+        isValidString(data.gatheringTitle, 2, 160) &&
+        isValidId(data.hostId) &&
+        isValidId(data.userId) &&
+        isValidString(data.userName, 2, 80) &&
+        isValidOptionalString(data, 'gatheringDate', 40) &&
+        isValidOptionalString(data, 'gatheringTime', 40) &&
+        data.status in ['registered', 'cancelled'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGatheringReflection(data) {
+      return data.keys().hasAll(['id', 'gatheringId', 'authorId', 'authorName', 'reflectionType', 'content', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'gatheringId', 'authorId', 'authorName', 'authorPhoto', 'reflectionType', 'content', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.gatheringId) &&
+        isValidId(data.authorId) &&
+        isValidString(data.authorName, 2, 80) &&
+        isValidOptionalString(data, 'authorPhoto', 500) &&
+        data.reflectionType in ['Reflection', 'Feedback'] &&
+        isValidString(data.content, 5, 1500) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidModerationReport(data) {
+      return data.keys().hasAll(['id', 'reporterId', 'reporterName', 'targetType', 'targetId', 'reason', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'reporterId', 'reporterName', 'targetType', 'targetId', 'targetTitle', 'reason', 'details', 'status', 'adminNotes', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.reporterId) &&
+        isValidString(data.reporterName, 2, 80) &&
+        data.targetType in ['post', 'user', 'event', 'gathering'] &&
+        isValidId(data.targetId) &&
+        isValidOptionalString(data, 'targetTitle', 160) &&
+        isValidString(data.reason, 3, 120) &&
+        isValidOptionalString(data, 'details', 1000) &&
+        data.status in ['open', 'resolved', 'dismissed'] &&
+        isValidOptionalString(data, 'adminNotes', 500) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'message', 'category', 'read', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'title', 'message', 'category', 'read', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.userId) &&
+        isValidString(data.title, 2, 140) &&
+        isValidString(data.message, 2, 500) &&
+        data.category in ['class', 'event', 'gathering', 'community', 'verification'] &&
+        data.read is bool &&
+        data.createdAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create, update, delete: if isValidId(uid) && isAdmin();
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (existing().accountStatus == 'active' || isOwner(userId) || isAdmin());
+      allow list: if existing().accountStatus == 'active' || isBootstrappedAdmin();
+
+      allow create: if isValidId(userId) &&
+        isVerifiedUser() &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            isOwner(userId) &&
+            incoming().verificationStatus == 'none' &&
+            incoming().isFeatured == false &&
+            incoming().accountStatus == 'active' &&
+            incoming().followersCount == 0 &&
+            incoming().followingCount == 0 &&
+            incoming().isSample == false
+          )
+        );
+
+      allow update: if isValidId(userId) &&
+        isVerifiedUser() &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          // Tier 1: Profile owner editing personal non-privileged fields
+          (
+            isOwner(userId) &&
+            existing().accountStatus == 'active' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'role', 'danceForms', 'experienceLevel',
+              'bio', 'location', 'photoURL', 'portfolioNote',
+              'repertoireHighlights', 'privacyShowLocation',
+              'privacyAllowFollows', 'updatedAt'
+            ])
+          ) ||
+          // Tier 2: Atomic counter sync on follow/unfollow (enforced via existsAfter)
+          (
+            existing().accountStatus == 'active' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['followersCount', 'updatedAt']) &&
+            (
+              (incoming().followersCount - existing().followersCount == 1 &&
+                existsAfter(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + userId))) ||
+              (existing().followersCount - incoming().followersCount == 1 &&
+                !existsAfter(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + userId)))
+            )
+          ) ||
+          (
+            isOwner(userId) &&
+            existing().accountStatus == 'active' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['followingCount', 'updatedAt']) &&
+            (incoming().followingCount - existing().followingCount == 1 || existing().followingCount - incoming().followingCount == 1)
+          )
+        );
+
+      allow delete: if isValidId(userId) && isAdmin();
+
+      match /private/account {
+        allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(userId) &&
+          isVerifiedUser() &&
+          (isOwner(userId) || isAdmin()) &&
+          isValidUserPrivateInfo(incoming(), userId) &&
+          incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) &&
+          isVerifiedUser() &&
+          (isOwner(userId) || isAdmin()) &&
+          isValidUserPrivateInfo(incoming(), userId) &&
+          incoming().uid == existing().uid &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'email', 'privacyProfileVisibility', 'emailNotifications', 'blockedUserIds', 'updatedAt'
+          ]);
+        allow delete: if isValidId(userId) && isAdmin();
+      }
+
+      match /savedItems/{itemId} {
+        allow get: if isValidId(userId) && isValidId(itemId) && isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(itemId) &&
+          isVerifiedUser() &&
+          isOwner(userId) &&
+          isValidSavedItem(incoming(), userId) &&
+          incoming().id == itemId &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(itemId) && isOwner(userId);
+      }
+    }
+
+    match /verificationRequests/{requestId} {
+      allow get: if isValidId(requestId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(requestId) &&
+        isVerifiedUser() &&
+        isValidVerificationRequest(incoming()) &&
+        incoming().id == requestId &&
+        incoming().userId == request.auth.uid &&
+        incoming().status == 'pending' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow update: if isValidId(requestId) &&
+        isAdmin() &&
+        isValidVerificationRequest(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminNotes', 'updatedAt']);
+
+      allow delete: if isValidId(requestId) && isAdmin();
+    }
+
+    match /follows/{followId} {
+      allow get: if isValidId(followId) && isSignedIn();
+      allow list: if isSignedIn() && (existing().followerId == request.auth.uid || existing().followingId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(followId) &&
+        isVerifiedUser() &&
+        isValidFollow(incoming()) &&
+        incoming().followerId == request.auth.uid &&
+        followId == incoming().followerId + '_' + incoming().followingId &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(incoming().followingId));
+
+      allow update: if false;
+
+      allow delete: if isValidId(followId) &&
+        isVerifiedUser() &&
+        existing().followerId == request.auth.uid;
+    }
+
+    match /posts/{postId} {
+      allow get: if isValidId(postId) && (existing().moderationStatus == 'published' || (isSignedIn() && (existing().authorId == request.auth.uid || isAdmin())));
+      allow list: if existing().moderationStatus == 'published' || (isSignedIn() && (existing().authorId == request.auth.uid || isBootstrappedAdmin()));
+
+      allow create: if isValidId(postId) &&
+        isVerifiedUser() &&
+        isValidCommunityPost(incoming()) &&
+        incoming().id == postId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            incoming().authorId == request.auth.uid &&
+            incoming().likesCount == 0 &&
+            incoming().commentsCount == 0 &&
+            incoming().savesCount == 0 &&
+            incoming().moderationStatus == 'published' &&
+            incoming().isSample == false &&
+            exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          )
+        );
+
+      allow update: if isValidId(postId) &&
+        isVerifiedUser() &&
+        isValidCommunityPost(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().authorId == existing().authorId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          // Tier 1: Author editing content
+          (
+            existing().authorId == request.auth.uid &&
+            existing().moderationStatus == 'published' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'content', 'category', 'danceForm', 'mediaUrl', 'mediaCaption', 'updatedAt'
+            ])
+          ) ||
+          // Tier 2: Like count atomic sync
+          (
+            existing().moderationStatus == 'published' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'updatedAt']) &&
+            (
+              (incoming().likesCount - existing().likesCount == 1 &&
+                existsAfter(/databases/$(database)/documents/posts/$(postId)/likes/$(request.auth.uid))) ||
+              (existing().likesCount - incoming().likesCount == 1 &&
+                !existsAfter(/databases/$(database)/documents/posts/$(postId)/likes/$(request.auth.uid)))
+            )
+          ) ||
+          // Tier 2: Comment count atomic sync
+          (
+            existing().moderationStatus == 'published' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount', 'updatedAt']) &&
+            incoming().commentsCount - existing().commentsCount == 1
+          ) ||
+          // Tier 2: Save count atomic sync
+          (
+            existing().moderationStatus == 'published' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['savesCount', 'updatedAt']) &&
+            (
+              (incoming().savesCount - existing().savesCount == 1 &&
+                existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/savedItems/$('post_' + postId))) ||
+              (existing().savesCount - incoming().savesCount == 1 &&
+                !existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/savedItems/$('post_' + postId)))
+            )
+          )
+        );
+
+      allow delete: if isValidId(postId) &&
+        isVerifiedUser() &&
+        (existing().authorId == request.auth.uid || isAdmin());
+
+      match /comments/{commentId} {
+        allow get: if isValidId(postId) && isValidId(commentId) &&
+          get(/databases/$(database)/documents/posts/$(postId)).data.moderationStatus == 'published';
+        allow list: if isValidId(postId) &&
+          get(/databases/$(database)/documents/posts/$(postId)).data.moderationStatus == 'published';
+
+        allow create: if isValidId(postId) && isValidId(commentId) &&
+          isVerifiedUser() &&
+          isValidPostComment(incoming(), postId) &&
+          incoming().id == commentId &&
+          incoming().authorId == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          get(/databases/$(database)/documents/posts/$(postId)).data.moderationStatus == 'published';
+
+        allow update: if false;
+
+        allow delete: if isValidId(postId) && isValidId(commentId) &&
+          isVerifiedUser() &&
+          (existing().authorId == request.auth.uid || isAdmin());
+      }
+
+      match /likes/{userId} {
+        allow get: if isValidId(postId) && isValidId(userId) && isSignedIn();
+        allow list: if isValidId(postId) && isSignedIn() && (existing().userId == request.auth.uid || isBootstrappedAdmin());
+
+        allow create: if isValidId(postId) && isValidId(userId) &&
+          isVerifiedUser() &&
+          isOwner(userId) &&
+          isValidPostLike(incoming(), postId, userId) &&
+          incoming().createdAt == request.time &&
+          get(/databases/$(database)/documents/posts/$(postId)).data.moderationStatus == 'published';
+
+        allow update: if false;
+
+        allow delete: if isValidId(postId) && isValidId(userId) &&
+          isVerifiedUser() &&
+          isOwner(userId);
+      }
+    }
+
+    match /masterclasses/{classId} {
+      allow get: if isValidId(classId);
+      allow list: if existing().status in ['scheduled', 'completed', 'cancelled'];
+
+      allow create: if isValidId(classId) &&
+        isVerifiedUser() &&
+        isValidMasterclass(incoming()) &&
+        incoming().id == classId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            incoming().guruId == request.auth.uid &&
+            incoming().registeredCount == 0 &&
+            incoming().isSample == false &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'guru' &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verificationStatus == 'verified'
+          )
+        );
+
+      allow update: if isValidId(classId) &&
+        isVerifiedUser() &&
+        isValidMasterclass(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().guruId == existing().guruId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          // Tier 1: Verified Guru editing own class
+          (
+            existing().guruId == request.auth.uid &&
+            existing().status != 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'danceForm', 'difficulty', 'date', 'time',
+              'durationMinutes', 'capacity', 'meetingLink', 'recordingAvailable',
+              'recordingNote', 'status', 'updatedAt'
+            ])
+          ) ||
+          // Tier 2: Registration count update atomically linked to registration document
+          (
+            existing().status == 'scheduled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['registeredCount', 'updatedAt']) &&
+            (
+              (incoming().registeredCount - existing().registeredCount == 1 &&
+                getAfter(/databases/$(database)/documents/classRegistrations/$(classId + '_' + request.auth.uid)).data.status == 'registered') ||
+              (existing().registeredCount - incoming().registeredCount == 1 &&
+                getAfter(/databases/$(database)/documents/classRegistrations/$(classId + '_' + request.auth.uid)).data.status == 'cancelled')
+            )
+          )
+        );
+
+      allow delete: if isValidId(classId) && isAdmin();
+    }
+
+    match /classRegistrations/{regId} {
+      allow get: if isValidId(regId) && isSignedIn() && (existing().userId == request.auth.uid || existing().guruId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || existing().guruId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(regId) &&
+        isVerifiedUser() &&
+        isValidClassRegistration(incoming()) &&
+        incoming().id == regId &&
+        incoming().userId == request.auth.uid &&
+        regId == incoming().classId + '_' + request.auth.uid &&
+        incoming().status == 'registered' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        get(/databases/$(database)/documents/masterclasses/$(incoming().classId)).data.status == 'scheduled';
+
+      allow update: if isValidId(regId) &&
+        isVerifiedUser() &&
+        isValidClassRegistration(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().classId == existing().classId &&
+        incoming().guruId == existing().guruId &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            existing().userId == request.auth.uid &&
+            incoming().status != existing().status &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(regId) && isAdmin();
+    }
+
+    match /classFeedback/{feedbackId} {
+      allow get: if isValidId(feedbackId);
+      allow list: if existing().classId is string;
+
+      allow create: if isValidId(feedbackId) &&
+        isVerifiedUser() &&
+        isValidClassFeedback(incoming()) &&
+        incoming().id == feedbackId &&
+        incoming().userId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/masterclasses/$(incoming().classId));
+
+      allow update: if false;
+      allow delete: if isValidId(feedbackId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /events/{eventId} {
+      allow get: if isValidId(eventId) && (existing().moderationStatus == 'approved' || (isSignedIn() && (existing().organizerId == request.auth.uid || isAdmin())));
+      allow list: if existing().moderationStatus == 'approved' || (isSignedIn() && (existing().organizerId == request.auth.uid || isBootstrappedAdmin()));
+
+      allow create: if isValidId(eventId) &&
+        isVerifiedUser() &&
+        isValidDanceEvent(incoming()) &&
+        incoming().id == eventId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            incoming().organizerId == request.auth.uid &&
+            incoming().moderationStatus == 'pending' &&
+            incoming().applicationsCount == 0 &&
+            incoming().isSample == false &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'organizer' &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verificationStatus == 'verified'
+          )
+        );
+
+      allow update: if isValidId(eventId) &&
+        isVerifiedUser() &&
+        isValidDanceEvent(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().organizerId == existing().organizerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          // Tier 1: Organizer updating own event
+          (
+            existing().organizerId == request.auth.uid &&
+            existing().moderationStatus != 'rejected' &&
+            incoming().moderationStatus == existing().moderationStatus &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'eventType', 'danceForm', 'format',
+              'date', 'registrationDeadline', 'city', 'state', 'venue',
+              'eligibility', 'applicationProcess', 'updatedAt'
+            ])
+          ) ||
+          // Tier 2: Application count sync atomically linked to application doc
+          (
+            existing().moderationStatus == 'approved' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['applicationsCount', 'updatedAt']) &&
+            (
+              (incoming().applicationsCount - existing().applicationsCount == 1 &&
+                getAfter(/databases/$(database)/documents/eventApplications/$(eventId + '_' + request.auth.uid)).data.status == 'submitted') ||
+              (existing().applicationsCount - incoming().applicationsCount == 1 &&
+                getAfter(/databases/$(database)/documents/eventApplications/$(eventId + '_' + request.auth.uid)).data.status == 'withdrawn')
+            )
+          )
+        );
+
+      allow delete: if isValidId(eventId) && isAdmin();
+    }
+
+    match /eventApplications/{appId} {
+      allow get: if isValidId(appId) && isSignedIn() && (existing().applicantId == request.auth.uid || existing().organizerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().applicantId == request.auth.uid || existing().organizerId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(appId) &&
+        isVerifiedUser() &&
+        isValidEventApplication(incoming()) &&
+        incoming().id == appId &&
+        incoming().applicantId == request.auth.uid &&
+        appId == incoming().eventId + '_' + request.auth.uid &&
+        incoming().status == 'submitted' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        get(/databases/$(database)/documents/events/$(incoming().eventId)).data.moderationStatus == 'approved';
+
+      allow update: if isValidId(appId) &&
+        isVerifiedUser() &&
+        isValidEventApplication(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().eventId == existing().eventId &&
+        incoming().organizerId == existing().organizerId &&
+        incoming().applicantId == existing().applicantId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          // Tier 1: Organizer reviewing application
+          (
+            existing().organizerId == request.auth.uid &&
+            existing().status != 'withdrawn' &&
+            incoming().status in ['reviewed', 'shortlisted'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          ) ||
+          // Tier 2: Applicant withdrawing
+          (
+            existing().applicantId == request.auth.uid &&
+            existing().status != 'withdrawn' &&
+            incoming().status == 'withdrawn' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(appId) && isAdmin();
+    }
+
+    match /gatherings/{gatheringId} {
+      allow get: if isValidId(gatheringId);
+      allow list: if existing().status in ['upcoming', 'completed', 'cancelled'];
+
+      allow create: if isValidId(gatheringId) &&
+        isVerifiedUser() &&
+        isValidGathering(incoming()) &&
+        incoming().id == gatheringId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            incoming().hostId == request.auth.uid &&
+            incoming().registeredCount == 0 &&
+            incoming().isSample == false &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verificationStatus == 'verified'
+          )
+        );
+
+      allow update: if isValidId(gatheringId) &&
+        isVerifiedUser() &&
+        isValidGathering(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().hostId == existing().hostId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            existing().hostId == request.auth.uid &&
+            existing().status != 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'topic', 'description', 'danceForm', 'date', 'time',
+              'durationMinutes', 'capacity', 'discussionPrompts', 'meetingLink',
+              'safetyGuidelines', 'status', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().status == 'upcoming' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['registeredCount', 'updatedAt']) &&
+            (
+              (incoming().registeredCount - existing().registeredCount == 1 &&
+                getAfter(/databases/$(database)/documents/gatheringRegistrations/$(gatheringId + '_' + request.auth.uid)).data.status == 'registered') ||
+              (existing().registeredCount - incoming().registeredCount == 1 &&
+                getAfter(/databases/$(database)/documents/gatheringRegistrations/$(gatheringId + '_' + request.auth.uid)).data.status == 'cancelled')
+            )
+          )
+        );
+
+      allow delete: if isValidId(gatheringId) && isAdmin();
+    }
+
+    match /gatheringRegistrations/{regId} {
+      allow get: if isValidId(regId) && isSignedIn() && (existing().userId == request.auth.uid || existing().hostId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || existing().hostId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(regId) &&
+        isVerifiedUser() &&
+        isValidGatheringRegistration(incoming()) &&
+        incoming().id == regId &&
+        incoming().userId == request.auth.uid &&
+        regId == incoming().gatheringId + '_' + request.auth.uid &&
+        incoming().status == 'registered' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        get(/databases/$(database)/documents/gatherings/$(incoming().gatheringId)).data.status == 'upcoming';
+
+      allow update: if isValidId(regId) &&
+        isVerifiedUser() &&
+        isValidGatheringRegistration(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().gatheringId == existing().gatheringId &&
+        incoming().hostId == existing().hostId &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            existing().userId == request.auth.uid &&
+            incoming().status != existing().status &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(regId) && isAdmin();
+    }
+
+    match /gatheringReflections/{refId} {
+      allow get: if isValidId(refId);
+      allow list: if existing().gatheringId is string;
+
+      allow create: if isValidId(refId) &&
+        isVerifiedUser() &&
+        isValidGatheringReflection(incoming()) &&
+        incoming().id == refId &&
+        incoming().authorId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/gatherings/$(incoming().gatheringId));
+
+      allow update: if false;
+      allow delete: if isValidId(refId) && isVerifiedUser() && (existing().authorId == request.auth.uid || isAdmin());
+    }
+
+    match /reports/{reportId} {
+      allow get: if isValidId(reportId) && isSignedIn() && (existing().reporterId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().reporterId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(reportId) &&
+        isVerifiedUser() &&
+        isValidModerationReport(incoming()) &&
+        incoming().id == reportId &&
+        incoming().reporterId == request.auth.uid &&
+        incoming().status == 'open' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidId(reportId) &&
+        isAdmin() &&
+        isValidModerationReport(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().reporterId == existing().reporterId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminNotes', 'updatedAt']);
+
+      allow delete: if isValidId(reportId) && isAdmin();
+    }
+
+    match /notifications/{notifId} {
+      allow get: if isValidId(notifId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(notifId) &&
+        isVerifiedUser() &&
+        isValidNotification(incoming()) &&
+        incoming().id == notifId &&
+        incoming().createdAt == request.time &&
+        (isAdmin() || incoming().userId == request.auth.uid);
+
+      allow update: if isValidId(notifId) &&
+        isVerifiedUser() &&
+        isValidNotification(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        (isAdmin() || (
+          existing().userId == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['read'])
+        ));
+
+      allow delete: if isValidId(notifId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAdmin());
+    }
+  }
+}

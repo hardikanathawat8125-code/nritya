@@ -1,0 +1,6 @@
+{
+  "name": "NRITYA — Where Tradition Connects",
+  "description": "A social and professional community platform dedicated to Indian classical dance, connecting dancers, students, gurus, event organizers, and enthusiasts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

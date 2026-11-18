@@ -1,0 +1,446 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public cultural profile for a dancer, student, guru, event organizer, or dance enthusiast (zero PII).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "role": { "type": "string", "enum": ["dancer", "guru", "organizer", "enthusiast"] },
+        "danceForms": { "type": "array", "maxLength": 8 },
+        "experienceLevel": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced", "Senior Practitioner", "Guru / Acharya"] },
+        "bio": { "type": "string", "maxLength": 1000 },
+        "location": { "type": "string", "maxLength": 120 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "portfolioNote": { "type": "string", "maxLength": 1200 },
+        "repertoireHighlights": { "type": "array", "maxLength": 10 },
+        "verificationStatus": { "type": "string", "enum": ["none", "pending", "verified", "rejected"] },
+        "isFeatured": { "type": "boolean" },
+        "accountStatus": { "type": "string", "enum": ["active", "suspended"] },
+        "privacyShowLocation": { "type": "boolean" },
+        "privacyAllowFollows": { "type": "boolean" },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "isSample": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "danceForms", "experienceLevel", "bio", "verificationStatus", "isFeatured", "accountStatus", "privacyShowLocation", "privacyAllowFollows", "followersCount", "followingCount", "isSample", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Private PII and notification/blocking settings isolated from public profile.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "privacyProfileVisibility": { "type": "string", "enum": ["public", "community"] },
+        "emailNotifications": { "type": "boolean" },
+        "blockedUserIds": { "type": "array", "maxLength": 100 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "privacyProfileVisibility", "emailNotifications", "blockedUserIds", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Authorized platform administrator UID record.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "grantedAt"]
+    },
+    "VerificationRequest": {
+      "title": "VerificationRequest",
+      "description": "Verification submission for Guru or Event Organizer credentials.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "requestedRole": { "type": "string", "enum": ["guru", "organizer"] },
+        "lineageOrOrg": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "credentialsSummary": { "type": "string", "minLength": 10, "maxLength": 1200 },
+        "referenceLink": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "adminNotes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "userName", "requestedRole", "lineageOrOrg", "credentialsSummary", "status", "createdAt", "updatedAt"]
+    },
+    "Follow": {
+      "title": "Follow",
+      "description": "Directional follow relationship between two users.",
+      "type": "object",
+      "properties": {
+        "followerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "followingId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["followerId", "followingId", "createdAt"]
+    },
+    "CommunityPost": {
+      "title": "CommunityPost",
+      "description": "Community feed post sharing a dance journey, achievement, question, or practice note.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "authorRole": { "type": "string", "enum": ["dancer", "guru", "organizer", "enthusiast"] },
+        "authorPhoto": { "type": "string", "maxLength": 500 },
+        "authorVerified": { "type": "boolean" },
+        "title": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "content": { "type": "string", "minLength": 10, "maxLength": 3000 },
+        "category": { "type": "string", "enum": ["Dance Journey", "Achievement", "Practice Reflection", "Abhinaya & Technique", "Question"] },
+        "danceForm": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "mediaUrl": { "type": "string", "maxLength": 500 },
+        "mediaCaption": { "type": "string", "maxLength": 200 },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "savesCount": { "type": "number" },
+        "moderationStatus": { "type": "string", "enum": ["published", "flagged", "hidden"] },
+        "isSample": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "authorId", "authorName", "authorRole", "authorVerified", "title", "content", "category", "danceForm", "likesCount", "commentsCount", "savesCount", "moderationStatus", "isSample", "createdAt", "updatedAt"]
+    },
+    "PostComment": {
+      "title": "PostComment",
+      "description": "Comment on a community post.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "authorPhoto": { "type": "string", "maxLength": 500 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "postId", "authorId", "authorName", "content", "createdAt"]
+    },
+    "PostLike": {
+      "title": "PostLike",
+      "description": "Like marker for a community post.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "postId", "createdAt"]
+    },
+    "SavedItem": {
+      "title": "SavedItem",
+      "description": "Bookmarked post, masterclass, event, or gathering for a user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itemType": { "type": "string", "enum": ["post", "masterclass", "event", "gathering"] },
+        "itemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "subtitle": { "type": "string", "maxLength": 160 },
+        "danceForm": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "itemType", "itemId", "title", "createdAt"]
+    },
+    "Masterclass": {
+      "title": "Masterclass",
+      "description": "Weekly online masterclass led by a Guru or authorized instructor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guruId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guruName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "guruBio": { "type": "string", "maxLength": 600 },
+        "guruPhoto": { "type": "string", "maxLength": 500 },
+        "title": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "description": { "type": "string", "minLength": 10, "maxLength": 2000 },
+        "danceForm": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "difficulty": { "type": "string", "enum": ["Beginner", "Intermediate", "Advanced", "All Levels"] },
+        "date": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "time": { "type": "string", "minLength": 3, "maxLength": 40 },
+        "durationMinutes": { "type": "number" },
+        "capacity": { "type": "number" },
+        "registeredCount": { "type": "number" },
+        "meetingLink": { "type": "string", "maxLength": 500 },
+        "recordingAvailable": { "type": "boolean" },
+        "recordingNote": { "type": "string", "maxLength": 300 },
+        "coverImage": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["scheduled", "completed", "cancelled"] },
+        "isSample": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "guruId", "guruName", "title", "description", "danceForm", "difficulty", "date", "time", "durationMinutes", "capacity", "registeredCount", "meetingLink", "recordingAvailable", "status", "isSample", "createdAt", "updatedAt"]
+    },
+    "ClassRegistration": {
+      "title": "ClassRegistration",
+      "description": "Dancer registration record for an online masterclass.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "classId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "guruId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "classTitle": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "danceForm": { "type": "string", "maxLength": 60 },
+        "classDate": { "type": "string", "maxLength": 40 },
+        "classTime": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "enum": ["registered", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "classId", "guruId", "userId", "userName", "classTitle", "status", "createdAt", "updatedAt"]
+    },
+    "ClassFeedback": {
+      "title": "ClassFeedback",
+      "description": "Post-class feedback submitted by a participant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "classId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "minLength": 3, "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "classId", "userId", "userName", "rating", "comment", "createdAt"]
+    },
+    "DanceEvent": {
+      "title": "DanceEvent",
+      "description": "Performance, competition, audition, festival, workshop, or scholarship opportunity requiring moderation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organizerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organizerName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "title": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "description": { "type": "string", "minLength": 10, "maxLength": 2500 },
+        "eventType": { "type": "string", "enum": ["Performance", "Competition", "Audition", "Festival", "Workshop", "Scholarship"] },
+        "danceForm": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "format": { "type": "string", "enum": ["In-Person", "Online", "Hybrid"] },
+        "date": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "registrationDeadline": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "city": { "type": "string", "maxLength": 80 },
+        "state": { "type": "string", "maxLength": 80 },
+        "venue": { "type": "string", "maxLength": 200 },
+        "eligibility": { "type": "string", "maxLength": 600 },
+        "applicationProcess": { "type": "string", "maxLength": 800 },
+        "coverImage": { "type": "string", "maxLength": 500 },
+        "moderationStatus": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "applicationsCount": { "type": "number" },
+        "isSample": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "organizerId", "organizerName", "title", "description", "eventType", "danceForm", "format", "date", "registrationDeadline", "eligibility", "applicationProcess", "moderationStatus", "applicationsCount", "isSample", "createdAt", "updatedAt"]
+    },
+    "EventApplication": {
+      "title": "EventApplication",
+      "description": "Dancer application or expression of interest for an approved event.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "eventId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "eventTitle": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "organizerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "applicantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "applicantName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "applicantDanceForm": { "type": "string", "maxLength": 60 },
+        "applicationType": { "type": "string", "enum": ["Application", "Expression of Interest"] },
+        "experienceSummary": { "type": "string", "minLength": 10, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["submitted", "reviewed", "shortlisted", "withdrawn"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "eventId", "eventTitle", "organizerId", "applicantId", "applicantName", "applicationType", "experienceSummary", "status", "createdAt", "updatedAt"]
+    },
+    "Gathering": {
+      "title": "Gathering",
+      "description": "Moderated virtual dance gathering session for dialogue and reflection.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "hostId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "hostName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "hostPhoto": { "type": "string", "maxLength": 500 },
+        "title": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "topic": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "description": { "type": "string", "minLength": 10, "maxLength": 2000 },
+        "danceForm": { "type": "string", "maxLength": 60 },
+        "date": { "type": "string", "maxLength": 40 },
+        "time": { "type": "string", "maxLength": 40 },
+        "durationMinutes": { "type": "number" },
+        "capacity": { "type": "number" },
+        "registeredCount": { "type": "number" },
+        "discussionPrompts": { "type": "array", "maxLength": 6 },
+        "meetingLink": { "type": "string", "maxLength": 500 },
+        "safetyGuidelines": { "type": "string", "maxLength": 600 },
+        "coverImage": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["upcoming", "completed", "cancelled"] },
+        "isSample": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "hostId", "hostName", "title", "topic", "description", "date", "time", "durationMinutes", "capacity", "registeredCount", "discussionPrompts", "meetingLink", "safetyGuidelines", "status", "isSample", "createdAt", "updatedAt"]
+    },
+    "GatheringRegistration": {
+      "title": "GatheringRegistration",
+      "description": "Participant registration for a virtual gathering.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "gatheringId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "gatheringTitle": { "type": "string", "maxLength": 160 },
+        "hostId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "gatheringDate": { "type": "string", "maxLength": 40 },
+        "gatheringTime": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "enum": ["registered", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "gatheringId", "gatheringTitle", "hostId", "userId", "userName", "status", "createdAt", "updatedAt"]
+    },
+    "GatheringReflection": {
+      "title": "GatheringReflection",
+      "description": "Community reflection or feedback post for a virtual gathering.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "gatheringId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "authorPhoto": { "type": "string", "maxLength": 500 },
+        "reflectionType": { "type": "string", "enum": ["Reflection", "Feedback"] },
+        "content": { "type": "string", "minLength": 5, "maxLength": 1500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "gatheringId", "authorId", "authorName", "reflectionType", "content", "createdAt"]
+    },
+    "ModerationReport": {
+      "title": "ModerationReport",
+      "description": "Safety report filed by a community member against content or accounts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reporterId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reporterName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "targetType": { "type": "string", "enum": ["post", "user", "event", "gathering"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetTitle": { "type": "string", "maxLength": 160 },
+        "reason": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "details": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["open", "resolved", "dismissed"] },
+        "adminNotes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "reporterId", "reporterName", "targetType", "targetId", "reason", "status", "createdAt", "updatedAt"]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "Personal activity notification for a user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "message": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "category": { "type": "string", "enum": ["class", "event", "gathering", "community", "verification"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "message", "category", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public cultural profile document for community members and sample gurus/dancers."
+    },
+    "/users/{userId}/private/account": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII and private settings accessible only by the profile owner or admin."
+    },
+    "/users/{userId}/savedItems/{itemId}": {
+      "schema": { "$ref": "#/entities/SavedItem" },
+      "description": "User's bookmarked posts, masterclasses, events, and gatherings."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted administrator UID registry."
+    },
+    "/verificationRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/VerificationRequest" },
+      "description": "Guru and Event Organizer credential verification requests."
+    },
+    "/follows/{followId}": {
+      "schema": { "$ref": "#/entities/Follow" },
+      "description": "Directional follower/following edges."
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "#/entities/CommunityPost" },
+      "description": "Community feed posts."
+    },
+    "/posts/{postId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/PostComment" },
+      "description": "Comments nested under a community post."
+    },
+    "/posts/{postId}/likes/{userId}": {
+      "schema": { "$ref": "#/entities/PostLike" },
+      "description": "Like records nested under a community post."
+    },
+    "/masterclasses/{classId}": {
+      "schema": { "$ref": "#/entities/Masterclass" },
+      "description": "Weekly online masterclasses."
+    },
+    "/classRegistrations/{regId}": {
+      "schema": { "$ref": "#/entities/ClassRegistration" },
+      "description": "Masterclass registrations with composite ID classId_userId."
+    },
+    "/classFeedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/ClassFeedback" },
+      "description": "Post-class feedback entries."
+    },
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/DanceEvent" },
+      "description": "Classical dance performances, competitions, auditions, festivals, workshops, and scholarships."
+    },
+    "/eventApplications/{appId}": {
+      "schema": { "$ref": "#/entities/EventApplication" },
+      "description": "Dancer applications and expressions of interest for approved events."
+    },
+    "/gatherings/{gatheringId}": {
+      "schema": { "$ref": "#/entities/Gathering" },
+      "description": "Moderated virtual dance gathering sessions."
+    },
+    "/gatheringRegistrations/{regId}": {
+      "schema": { "$ref": "#/entities/GatheringRegistration" },
+      "description": "Participant registrations for virtual gatherings."
+    },
+    "/gatheringReflections/{refId}": {
+      "schema": { "$ref": "#/entities/GatheringReflection" },
+      "description": "Reflections and feedback for virtual gatherings."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/ModerationReport" },
+      "description": "Community safety and content moderation reports."
+    },
+    "/notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/UserNotification" },
+      "description": "User activity notifications."
+    }
+  }
+}

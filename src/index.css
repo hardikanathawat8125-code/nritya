@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --color-ivory: #FAF7F2;
+  --color-alabaster: #F3EDE3;
+  --color-plum: #4A1D3D;
+  --color-plum-dark: #36132C;
+  --color-lavender: #7B6988;
+  --color-rose-muted: #B5727B;
+  --color-gold-antique: #B38838;
+  --color-ink: #1E171D;
+  --color-ink-muted: #5A4A57;
+  --color-hairline: #E5DDD2;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+    background-color: #FAF7F2;
+    color: #1E171D;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Subtle classical border ornament motif */
+.motif-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(179, 136, 56, 0.35) 20%,
+    rgba(74, 29, 61, 0.25) 50%,
+    rgba(179, 136, 56, 0.35) 80%,
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
