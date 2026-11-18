@@ -155,14 +155,18 @@ export const NrityaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         if (isBootAdmin) {
           setIsAdminDoc(true);
-          seedSampleCatalogToFirestore(false).catch(() => {});
+          seedSampleCatalogToFirestore(false).catch((err) => {
+            console.warn('Sample catalog auto-seed note:', err);
+          });
         } else {
           try {
             const adminSnap = await getDoc(doc(db, 'admins', user.uid));
             const adminExists = adminSnap.exists();
             setIsAdminDoc(adminExists);
             if (adminExists) {
-              seedSampleCatalogToFirestore(false).catch(() => {});
+              seedSampleCatalogToFirestore(false).catch((err) => {
+                console.warn('Sample catalog auto-seed note:', err);
+              });
             }
           } catch {
             setIsAdminDoc(false);
@@ -178,34 +182,34 @@ export const NrityaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Public catalog streams (work both pre-auth and post-auth)
   useEffect(() => {
-    let loadedCount = 0;
-    const markLoaded = () => {
-      loadedCount += 1;
-      if (loadedCount >= 4) setLoadingCatalog(false);
+    const loadedKeys = new Set<string>();
+    const markLoaded = (key: string) => {
+      loadedKeys.add(key);
+      if (loadedKeys.size >= 5) setLoadingCatalog(false);
     };
 
     const u1 = subscribePublicUsers(
       (data) => {
         setLiveUsers(data);
-        markLoaded();
+        markLoaded('users');
       },
-      () => markLoaded()
+      () => markLoaded('users')
     );
     const u2 = subscribePublishedPosts((data) => {
       setLivePosts(data);
-      markLoaded();
+      markLoaded('posts');
     });
     const u3 = subscribeMasterclasses((data) => {
       setLiveMasterclasses(data);
-      markLoaded();
+      markLoaded('masterclasses');
     });
     const u4 = subscribeApprovedEvents((data) => {
       setLiveEvents(data);
-      markLoaded();
+      markLoaded('events');
     });
     const u5 = subscribeGatherings((data) => {
       setLiveGatherings(data);
-      markLoaded();
+      markLoaded('gatherings');
     });
 
     return () => {
@@ -265,7 +269,15 @@ export const NrityaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     liveGatherings.length === 0;
 
   const users = useMemo(() => {
-    if (liveUsers.length > 0 && !usingPreviewFallback) return liveUsers;
+    const hasSampleItems =
+      usingPreviewFallback ||
+      liveMasterclasses.some((m) => m.isSample) ||
+      liveEvents.some((e) => e.isSample) ||
+      liveGatherings.some((g) => g.isSample) ||
+      livePosts.some((p) => p.isSample);
+
+    if (liveUsers.length > 0 && !hasSampleItems) return liveUsers;
+
     const sampleFallback = SAMPLE_USERS.map((u) => ({
       ...u,
       createdAt: null,
@@ -276,7 +288,7 @@ export const NrityaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!merged.some((u) => u.uid === s.uid)) merged.push(s);
     }
     return merged;
-  }, [liveUsers, usingPreviewFallback]);
+  }, [liveUsers, usingPreviewFallback, liveMasterclasses, liveEvents, liveGatherings, livePosts]);
 
   const posts = useMemo(() => {
     if (!usingPreviewFallback || livePosts.length > 0) return livePosts;

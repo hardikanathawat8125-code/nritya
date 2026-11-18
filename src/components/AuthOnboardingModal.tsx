@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { useNritya } from '../context/NrityaContext';
 import { createOrUpdateUserProfile } from '../services/nrityaService';
@@ -29,6 +29,12 @@ export const AuthOnboardingModal: React.FC = () => {
   const [privacyShowLocation, setPrivacyShowLocation] = useState(true);
   const [privacyAllowFollows, setPrivacyAllowFollows] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (firebaseUser?.displayName && !displayName) {
+      setDisplayName(firebaseUser.displayName);
+    }
+  }, [firebaseUser, displayName]);
 
   const visible = openAuthModal || profileNeedsOnboarding;
   if (!visible) return null;

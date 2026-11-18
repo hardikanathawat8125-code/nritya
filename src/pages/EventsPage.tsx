@@ -11,6 +11,8 @@ import { useNritya } from '../context/NrityaContext';
 import { NRITYA_IMAGES } from '../data/sampleCatalog';
 import {
   applyForEvent,
+  ensureSampleInteractiveCatalog,
+  seedSampleCatalogToFirestore,
   submitDanceEvent,
   subscribeOrganizerApplications,
   subscribeOrganizerEvents,
@@ -120,10 +122,7 @@ export const EventsPage: React.FC = () => {
     if (!selectedEvent) return;
     if (!currentUserProfile) {
       setOpenAuthModal(true);
-      return;
-    }
-    if (usingPreviewFallback) {
-      showToast('Sample preview events require database seeding by Admin.', 'info');
+      showToast('Please sign in and complete your profile to apply.', 'info');
       return;
     }
     if (experienceSummary.trim().length < 10) {
@@ -132,6 +131,9 @@ export const EventsPage: React.FC = () => {
     }
     setBusy(true);
     try {
+      if (usingPreviewFallback || selectedEvent.isSample) {
+        await (isAdmin ? seedSampleCatalogToFirestore(false) : ensureSampleInteractiveCatalog());
+      }
       await applyForEvent({
         event: selectedEvent,
         applicant: currentUserProfile,
@@ -326,21 +328,28 @@ export const EventsPage: React.FC = () => {
                           </p>
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                               if (!currentUserProfile) {
                                 setOpenAuthModal(true);
                                 return;
                               }
-                              if (usingPreviewFallback) return;
-                              toggleSaveItem({
-                                uid: currentUserProfile.uid,
-                                itemType: 'event',
-                                itemId: ev.id,
-                                title: ev.title,
-                                subtitle: ev.organizerName,
-                                danceForm: ev.danceForm,
-                                currentlySaved: isSaved,
-                              });
+                              try {
+                                await toggleSaveItem({
+                                  uid: currentUserProfile.uid,
+                                  itemType: 'event',
+                                  itemId: ev.id,
+                                  title: ev.title,
+                                  subtitle: ev.organizerName,
+                                  danceForm: ev.danceForm,
+                                  currentlySaved: isSaved,
+                                });
+                                showToast(
+                                  isSaved ? 'Removed from saved items.' : 'Saved to your dashboard.',
+                                  'success'
+                                );
+                              } catch (err: any) {
+                                showToast(err?.message || 'Unable to save event.', 'error');
+                              }
                             }}
                             aria-label="Save event"
                             className="p-1 text-[#5A4A57] hover:text-[#4A1D3D]"

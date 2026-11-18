@@ -14,7 +14,9 @@ import { useNritya } from '../context/NrityaContext';
 import { NRITYA_IMAGES } from '../data/sampleCatalog';
 import {
   createMasterclass,
+  ensureSampleInteractiveCatalog,
   formatTimestamp,
+  seedSampleCatalogToFirestore,
   submitClassFeedback,
   subscribeClassFeedback,
   toggleMasterclassRegistration,
@@ -29,8 +31,10 @@ import { SafeImage } from '../components/SafeImage';
 
 const MasterclassDetailDrawer: React.FC<{
   mc: Masterclass;
+  busy: boolean;
+  onToggleReg: (mc: Masterclass) => void;
   onClose: () => void;
-}> = ({ mc, onClose }) => {
+}> = ({ mc, busy, onToggleReg, onClose }) => {
   const {
     currentUserProfile,
     isAdmin,
@@ -47,6 +51,7 @@ const MasterclassDetailDrawer: React.FC<{
 
   const reg = classRegistrations.find((r) => r.classId === mc.id);
   const isRegistered = reg?.status === 'registered';
+  const isFull = !isRegistered && mc.registeredCount >= mc.capacity;
   const canViewLink =
     isRegistered || isAdmin || currentUserProfile?.uid === mc.guruId;
 
@@ -62,13 +67,12 @@ const MasterclassDetailDrawer: React.FC<{
       setOpenAuthModal(true);
       return;
     }
-    if (usingPreviewFallback) {
-      showToast('Sample preview feedback requires database seeding.', 'info');
-      return;
-    }
     if (comment.trim().length < 3) return;
     setSubmitting(true);
     try {
+      if (usingPreviewFallback) {
+        await (isAdmin ? seedSampleCatalogToFirestore(false) : ensureSampleInteractiveCatalog());
+      }
       await submitClassFeedback({
         classId: mc.id,
         user: currentUserProfile,
@@ -112,6 +116,41 @@ const MasterclassDetailDrawer: React.FC<{
         </div>
 
         <p className="text-sm text-[#1E171D] leading-relaxed">{mc.description}</p>
+
+        <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-lg bg-[#FAF7F2] border border-[#E5DDD2]">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-[#5A4A57] tabular-nums">
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-[#B38838]" /> {mc.date}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-[#B38838]" /> {mc.time} ({mc.durationMinutes} min)
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-[#B38838]" /> {mc.registeredCount}/
+              {mc.capacity} registered
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={busy || mc.status !== 'scheduled' || isFull}
+            onClick={() => onToggleReg(mc)}
+            className={`py-2 px-4 rounded-lg text-xs font-medium transition-colors min-h-[38px] disabled:opacity-60 ${
+              isRegistered
+                ? 'bg-[#F3EDE3] text-[#4A1D3D] border border-[#E5DDD2] hover:border-[#4A1D3D]'
+                : 'bg-[#4A1D3D] text-[#FAF7F2] hover:bg-[#36132C]'
+            }`}
+          >
+            {busy
+              ? isRegistered
+                ? 'Cancelling...'
+                : 'Registering...'
+              : isRegistered
+              ? 'Cancel Registration'
+              : isFull
+              ? 'Session Full'
+              : 'Register Seat'}
+          </button>
+        </div>
 
         {mc.guruBio && (
           <div className="p-4 rounded-lg bg-[#FAF7F2] border border-[#E5DDD2] space-y-1">
@@ -232,7 +271,7 @@ export const MasterclassesPage: React.FC = () => {
 
   const [formFilter, setFormFilter] = useState('All');
   const [difficultyFilter, setDifficultyFilter] = useState('All');
-  const [activeDetail, setActiveDetail] = useState<Masterclass | null>(null);
+  const [activeDetailId, setActiveDetailId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -256,6 +295,11 @@ export const MasterclassesPage: React.FC = () => {
     (currentUserProfile?.role === 'guru' &&
       currentUserProfile?.verificationStatus === 'verified');
 
+  const activeDetail = useMemo(
+    () => masterclasses.find((m) => m.id === activeDetailId) || null,
+    [masterclasses, activeDetailId]
+  );
+
   const filtered = useMemo(() => {
     return masterclasses.filter((mc) => {
       if (formFilter !== 'All' && mc.danceForm !== formFilter) return false;
@@ -267,10 +311,7 @@ export const MasterclassesPage: React.FC = () => {
   const handleToggleReg = async (mc: Masterclass) => {
     if (!currentUserProfile) {
       setOpenAuthModal(true);
-      return;
-    }
-    if (usingPreviewFallback) {
-      showToast('Sample preview classes become interactive once seeded by Admin.', 'info');
+      showToast('Please sign in and complete your profile to register a seat.', 'info');
       return;
     }
     const existingReg = classRegistrations.find((r) => r.classId === mc.id);
@@ -281,6 +322,9 @@ export const MasterclassesPage: React.FC = () => {
     }
     setBusyId(mc.id);
     try {
+      if (usingPreviewFallback || mc.isSample) {
+        await (isAdmin ? seedSampleCatalogToFirestore(false) : ensureSampleInteractiveCatalog());
+      }
       await toggleMasterclassRegistration({
         mc,
         user: currentUserProfile,
@@ -294,6 +338,27 @@ export const MasterclassesPage: React.FC = () => {
       showToast(err?.message || 'Unable to update registration.', 'error');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const handleSaveMasterclass = async (mc: Masterclass, isSaved: boolean) => {
+    if (!currentUserProfile) {
+      setOpenAuthModal(true);
+      return;
+    }
+    try {
+      await toggleSaveItem({
+        uid: currentUserProfile.uid,
+        itemType: 'masterclass',
+        itemId: mc.id,
+        title: mc.title,
+        subtitle: mc.guruName,
+        danceForm: mc.danceForm,
+        currentlySaved: isSaved,
+      });
+      showToast(isSaved ? 'Removed from saved items.' : 'Saved to your dashboard.', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Unable to save masterclass.', 'error');
     }
   };
 
@@ -400,6 +465,7 @@ export const MasterclassesPage: React.FC = () => {
           {filtered.map((mc) => {
             const existingReg = classRegistrations.find((r) => r.classId === mc.id);
             const isRegistered = existingReg?.status === 'registered';
+            const isFull = !isRegistered && mc.registeredCount >= mc.capacity;
             const isSaved = savedItems.some(
               (s) => s.itemType === 'masterclass' && s.itemId === mc.id
             );
@@ -427,22 +493,7 @@ export const MasterclassesPage: React.FC = () => {
                       </p>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (!currentUserProfile) {
-                            setOpenAuthModal(true);
-                            return;
-                          }
-                          if (usingPreviewFallback) return;
-                          toggleSaveItem({
-                            uid: currentUserProfile.uid,
-                            itemType: 'masterclass',
-                            itemId: mc.id,
-                            title: mc.title,
-                            subtitle: mc.guruName,
-                            danceForm: mc.danceForm,
-                            currentlySaved: isSaved,
-                          });
-                        }}
+                        onClick={() => handleSaveMasterclass(mc, isSaved)}
                         aria-label="Save masterclass"
                         className="p-1.5 rounded-md text-[#5A4A57] hover:text-[#4A1D3D]"
                       >
@@ -484,19 +535,27 @@ export const MasterclassesPage: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-3">
                       <button
                         type="button"
-                        disabled={busyId === mc.id || mc.status !== 'scheduled'}
+                        disabled={busyId === mc.id || mc.status !== 'scheduled' || isFull}
                         onClick={() => handleToggleReg(mc)}
-                        className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors min-h-[42px] ${
+                        className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors min-h-[42px] disabled:opacity-60 ${
                           isRegistered
                             ? 'bg-[#F3EDE3] text-[#4A1D3D] border border-[#E5DDD2] hover:border-[#4A1D3D]'
                             : 'bg-[#4A1D3D] text-[#FAF7F2] hover:bg-[#36132C]'
                         }`}
                       >
-                        {isRegistered ? 'Cancel Registration' : 'Register Seat'}
+                        {busyId === mc.id
+                          ? isRegistered
+                            ? 'Cancelling...'
+                            : 'Registering...'
+                          : isRegistered
+                          ? 'Cancel Registration'
+                          : isFull
+                          ? 'Session Full'
+                          : 'Register Seat'}
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveDetail(mc)}
+                        onClick={() => setActiveDetailId(mc.id)}
                         className="py-2.5 px-4 rounded-lg border border-[#E5DDD2] text-sm font-medium text-[#1E171D] hover:border-[#4A1D3D] min-h-[42px]"
                       >
                         Details & Feedback
@@ -511,7 +570,12 @@ export const MasterclassesPage: React.FC = () => {
       )}
 
       {activeDetail && (
-        <MasterclassDetailDrawer mc={activeDetail} onClose={() => setActiveDetail(null)} />
+        <MasterclassDetailDrawer
+          mc={activeDetail}
+          busy={busyId === activeDetail.id}
+          onToggleReg={handleToggleReg}
+          onClose={() => setActiveDetailId(null)}
+        />
       )}
 
       {/* Create Masterclass Modal */}

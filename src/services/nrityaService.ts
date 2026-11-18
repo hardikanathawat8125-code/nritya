@@ -728,8 +728,30 @@ export async function toggleMasterclassRegistration(params: {
   const mcRef = doc(db, 'masterclasses', params.mc.id);
 
   try {
+    const [regSnap, mcSnap] = await Promise.all([getDoc(regRef), getDoc(mcRef)]);
+    if (!mcSnap.exists()) {
+      throw new Error('Masterclass record is not yet initialized in the database.');
+    }
+    const liveMc = mcSnap.data() as Masterclass;
+    if (liveMc.status !== 'scheduled') {
+      throw new Error('Registrations are only open for scheduled masterclasses.');
+    }
+
+    const liveReg = regSnap.exists()
+      ? (regSnap.data() as ClassRegistration)
+      : params.existingReg;
+    const isCurrentlyRegistered = liveReg?.status === 'registered';
+
+    if (!isCurrentlyRegistered && liveMc.registeredCount >= liveMc.capacity) {
+      throw new Error('This masterclass has reached full capacity.');
+    }
+
+    const safeUserName =
+      clampStr(params.user.displayName, 80).length >= 2
+        ? clampStr(params.user.displayName, 80)
+        : 'Classical Dancer';
+
     const batch = writeBatch(db);
-    const isCurrentlyRegistered = params.existingReg?.status === 'registered';
 
     if (isCurrentlyRegistered) {
       batch.update(regRef, {
@@ -740,7 +762,7 @@ export async function toggleMasterclassRegistration(params: {
         registeredCount: increment(-1),
         updatedAt: serverTimestamp(),
       });
-    } else if (params.existingReg) {
+    } else if (regSnap.exists()) {
       batch.update(regRef, {
         status: 'registered',
         updatedAt: serverTimestamp(),
@@ -753,13 +775,13 @@ export async function toggleMasterclassRegistration(params: {
       batch.set(regRef, {
         id: regId,
         classId: params.mc.id,
-        guruId: params.mc.guruId,
+        guruId: liveMc.guruId,
         userId: params.user.uid,
-        userName: clampStr(params.user.displayName, 80),
-        classTitle: clampStr(params.mc.title, 160),
-        danceForm: clampStr(params.mc.danceForm, 60),
-        classDate: clampStr(params.mc.date, 40),
-        classTime: clampStr(params.mc.time, 40),
+        userName: safeUserName,
+        classTitle: clampStr(liveMc.title, 160),
+        danceForm: clampStr(liveMc.danceForm, 60),
+        classDate: clampStr(liveMc.date, 40),
+        classTime: clampStr(liveMc.time, 40),
         status: 'registered',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -775,7 +797,7 @@ export async function toggleMasterclassRegistration(params: {
       id: notifId,
       userId: params.user.uid,
       title: isCurrentlyRegistered ? 'Masterclass Seat Cancelled' : 'Masterclass Seat Confirmed',
-      message: `${isCurrentlyRegistered ? 'Cancelled registration for' : 'Confirmed your seat in'} "${clampStr(params.mc.title, 80)}" on ${params.mc.date}.`,
+      message: `${isCurrentlyRegistered ? 'Cancelled registration for' : 'Confirmed your seat in'} "${clampStr(liveMc.title, 80)}" on ${liveMc.date}.`,
       category: 'class',
       read: false,
       createdAt: serverTimestamp(),
@@ -783,6 +805,14 @@ export async function toggleMasterclassRegistration(params: {
 
     await batch.commit();
   } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.includes('capacity') ||
+        err.message.includes('scheduled') ||
+        err.message.includes('initialized'))
+    ) {
+      throw err;
+    }
     handleFirestoreError(err, OperationType.WRITE, `classRegistrations/${regId}`);
   }
 }
@@ -1008,8 +1038,30 @@ export async function toggleGatheringRegistration(params: {
   const gathRef = doc(db, 'gatherings', params.gathering.id);
 
   try {
+    const [regSnap, gathSnap] = await Promise.all([getDoc(regRef), getDoc(gathRef)]);
+    if (!gathSnap.exists()) {
+      throw new Error('Gathering record is not yet initialized in the database.');
+    }
+    const liveGath = gathSnap.data() as Gathering;
+    if (liveGath.status !== 'upcoming') {
+      throw new Error('RSVPs are only open for upcoming gatherings.');
+    }
+
+    const liveReg = regSnap.exists()
+      ? (regSnap.data() as GatheringRegistration)
+      : params.existingReg;
+    const isCurrentlyRegistered = liveReg?.status === 'registered';
+
+    if (!isCurrentlyRegistered && liveGath.registeredCount >= liveGath.capacity) {
+      throw new Error('This gathering circle has reached full capacity.');
+    }
+
+    const safeUserName =
+      clampStr(params.user.displayName, 80).length >= 2
+        ? clampStr(params.user.displayName, 80)
+        : 'Classical Dancer';
+
     const batch = writeBatch(db);
-    const isCurrentlyRegistered = params.existingReg?.status === 'registered';
 
     if (isCurrentlyRegistered) {
       batch.update(regRef, {
@@ -1020,7 +1072,7 @@ export async function toggleGatheringRegistration(params: {
         registeredCount: increment(-1),
         updatedAt: serverTimestamp(),
       });
-    } else if (params.existingReg) {
+    } else if (regSnap.exists()) {
       batch.update(regRef, {
         status: 'registered',
         updatedAt: serverTimestamp(),
@@ -1033,12 +1085,12 @@ export async function toggleGatheringRegistration(params: {
       batch.set(regRef, {
         id: regId,
         gatheringId: params.gathering.id,
-        gatheringTitle: clampStr(params.gathering.title, 160),
-        hostId: params.gathering.hostId,
+        gatheringTitle: clampStr(liveGath.title, 160),
+        hostId: liveGath.hostId,
         userId: params.user.uid,
-        userName: clampStr(params.user.displayName, 80),
-        gatheringDate: clampStr(params.gathering.date, 40),
-        gatheringTime: clampStr(params.gathering.time, 40),
+        userName: safeUserName,
+        gatheringDate: clampStr(liveGath.date, 40),
+        gatheringTime: clampStr(liveGath.time, 40),
         status: 'registered',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -1054,7 +1106,7 @@ export async function toggleGatheringRegistration(params: {
       id: notifId,
       userId: params.user.uid,
       title: isCurrentlyRegistered ? 'Gathering RSVP Cancelled' : 'Gathering Seat Reserved',
-      message: `${isCurrentlyRegistered ? 'Cancelled RSVP for' : 'Reserved spot in'} "${clampStr(params.gathering.title, 80)}".`,
+      message: `${isCurrentlyRegistered ? 'Cancelled RSVP for' : 'Reserved spot in'} "${clampStr(liveGath.title, 80)}".`,
       category: 'gathering',
       read: false,
       createdAt: serverTimestamp(),
@@ -1062,6 +1114,14 @@ export async function toggleGatheringRegistration(params: {
 
     await batch.commit();
   } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.includes('capacity') ||
+        err.message.includes('upcoming') ||
+        err.message.includes('initialized'))
+    ) {
+      throw err;
+    }
     handleFirestoreError(err, OperationType.WRITE, `gatheringRegistrations/${regId}`);
   }
 }
@@ -1305,95 +1365,143 @@ export async function adminResolveReport(
   }
 }
 
+export async function ensureSampleInteractiveCatalog(): Promise<{ seeded: boolean }> {
+  try {
+    const targets: Array<{ ref: ReturnType<typeof doc>; data: Record<string, any> }> = [
+      ...SAMPLE_MASTERCLASSES.map((mc) => ({ ref: doc(db, 'masterclasses', mc.id), data: mc })),
+      ...SAMPLE_EVENTS.map((ev) => ({ ref: doc(db, 'events', ev.id), data: ev })),
+      ...SAMPLE_GATHERINGS.map((g) => ({ ref: doc(db, 'gatherings', g.id), data: g })),
+    ];
+
+    const snaps = await Promise.all(targets.map((t) => getDoc(t.ref)));
+    const batch = writeBatch(db);
+    let pendingCount = 0;
+
+    targets.forEach((t, idx) => {
+      if (!snaps[idx].exists()) {
+        batch.set(t.ref, {
+          ...t.data,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        pendingCount += 1;
+      }
+    });
+
+    if (pendingCount === 0) {
+      return { seeded: false };
+    }
+    await batch.commit();
+    return { seeded: true };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'sample_interactive_catalog');
+  }
+}
+
 export async function seedSampleCatalogToFirestore(force = false): Promise<{ seeded: boolean }> {
   try {
     if (!force) {
       const existingMasterclasses = await getDocs(
         query(collection(db, 'masterclasses'), where('status', 'in', ['scheduled', 'completed', 'cancelled']))
       );
-      if (!existingMasterclasses.empty) {
+      const existingPosts = await getDocs(
+        query(collection(db, 'posts'), where('moderationStatus', '==', 'published'))
+      );
+      if (!existingMasterclasses.empty && !existingPosts.empty) {
         return { seeded: false };
       }
     }
 
-    const batch = writeBatch(db);
+    // Batch 1: Parent entities (users, posts, masterclasses, events, gatherings)
+    // Only write missing documents so live registration/like counters are preserved.
+    const parentTargets: Array<{ ref: ReturnType<typeof doc>; data: Record<string, any> }> = [
+      ...SAMPLE_USERS.map((u) => ({ ref: doc(db, 'users', u.uid), data: u })),
+      ...SAMPLE_POSTS.map((p) => ({ ref: doc(db, 'posts', p.id), data: p })),
+      ...SAMPLE_MASTERCLASSES.map((mc) => ({ ref: doc(db, 'masterclasses', mc.id), data: mc })),
+      ...SAMPLE_EVENTS.map((ev) => ({ ref: doc(db, 'events', ev.id), data: ev })),
+      ...SAMPLE_GATHERINGS.map((g) => ({ ref: doc(db, 'gatherings', g.id), data: g })),
+    ];
 
-    for (const u of SAMPLE_USERS) {
-      batch.set(doc(db, 'users', u.uid), {
-        ...u,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
+    const parentSnaps = await Promise.all(parentTargets.map((t) => getDoc(t.ref)));
+    const batch1 = writeBatch(db);
+    let parentWrites = 0;
 
-    for (const p of SAMPLE_POSTS) {
-      batch.set(doc(db, 'posts', p.id), {
-        ...p,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
-
-    batch.set(doc(db, 'posts', 'sample_post_1', 'comments', 'sample_cmt_1'), {
-      id: 'sample_cmt_1',
-      postId: 'sample_post_1',
-      authorId: 'sample_guru_meera',
-      authorName: 'Meera Sundaram (Sample Guru)',
-      authorPhoto: NRITYA_IMAGES.hero,
-      content:
-        'Sample comment: Breath alignment before tempo changes is essential across every classical form.',
-      createdAt: serverTimestamp(),
+    parentTargets.forEach((t, idx) => {
+      if (!parentSnaps[idx].exists()) {
+        batch1.set(t.ref, {
+          ...t.data,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        parentWrites += 1;
+      }
     });
 
-    batch.set(doc(db, 'posts', 'sample_post_2', 'comments', 'sample_cmt_2'), {
-      id: 'sample_cmt_2',
-      postId: 'sample_post_2',
-      authorId: 'sample_dancer_kavya',
-      authorName: 'Kavya Pattnaik (Sample Practitioner)',
-      authorPhoto: NRITYA_IMAGES.dancerPortrait,
-      content:
-        'Sample comment: Speaking the sahitya aloud before rehearsing mudras made a tremendous difference in my pallavi work.',
-      createdAt: serverTimestamp(),
+    if (parentWrites > 0) {
+      await batch1.commit();
+    }
+
+    // Batch 2: Child/related entities referencing parent posts & gatherings
+    // Must commit AFTER Batch 1 because security rules use get()/exists() on parent docs.
+    const childTargets: Array<{ ref: ReturnType<typeof doc>; data: Record<string, any> }> = [
+      {
+        ref: doc(db, 'posts', 'sample_post_1', 'comments', 'sample_cmt_1'),
+        data: {
+          id: 'sample_cmt_1',
+          postId: 'sample_post_1',
+          authorId: 'sample_guru_meera',
+          authorName: 'Meera Sundaram (Sample Guru)',
+          authorPhoto: NRITYA_IMAGES.hero,
+          content:
+            'Sample comment: Breath alignment before tempo changes is essential across every classical form.',
+        },
+      },
+      {
+        ref: doc(db, 'posts', 'sample_post_2', 'comments', 'sample_cmt_2'),
+        data: {
+          id: 'sample_cmt_2',
+          postId: 'sample_post_2',
+          authorId: 'sample_dancer_kavya',
+          authorName: 'Kavya Pattnaik (Sample Practitioner)',
+          authorPhoto: NRITYA_IMAGES.dancerPortrait,
+          content:
+            'Sample comment: Speaking the sahitya aloud before rehearsing mudras made a tremendous difference in my pallavi work.',
+        },
+      },
+      {
+        ref: doc(db, 'gatheringReflections', 'sample_ref_1'),
+        data: {
+          id: 'sample_ref_1',
+          gatheringId: 'sample_gathering_1',
+          authorId: 'sample_dancer_kavya',
+          authorName: 'Kavya Pattnaik (Sample Practitioner)',
+          authorPhoto: NRITYA_IMAGES.dancerPortrait,
+          reflectionType: 'Reflection',
+          content:
+            'Sample reflection: Setting aside twenty quiet minutes for adavu footwork before evening study keeps the body warm without burnout.',
+        },
+      },
+    ];
+
+    const childSnaps = await Promise.all(childTargets.map((t) => getDoc(t.ref)));
+    const batch2 = writeBatch(db);
+    let childWrites = 0;
+
+    childTargets.forEach((t, idx) => {
+      if (!childSnaps[idx].exists()) {
+        batch2.set(t.ref, {
+          ...t.data,
+          createdAt: serverTimestamp(),
+        });
+        childWrites += 1;
+      }
     });
 
-    for (const mc of SAMPLE_MASTERCLASSES) {
-      batch.set(doc(db, 'masterclasses', mc.id), {
-        ...mc,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+    if (childWrites > 0) {
+      await batch2.commit();
     }
 
-    for (const ev of SAMPLE_EVENTS) {
-      batch.set(doc(db, 'events', ev.id), {
-        ...ev,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
-
-    for (const g of SAMPLE_GATHERINGS) {
-      batch.set(doc(db, 'gatherings', g.id), {
-        ...g,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
-
-    batch.set(doc(db, 'gatheringReflections', 'sample_ref_1'), {
-      id: 'sample_ref_1',
-      gatheringId: 'sample_gathering_1',
-      authorId: 'sample_dancer_kavya',
-      authorName: 'Kavya Pattnaik (Sample Practitioner)',
-      authorPhoto: NRITYA_IMAGES.dancerPortrait,
-      reflectionType: 'Reflection',
-      content:
-        'Sample reflection: Setting aside twenty quiet minutes for adavu footwork before evening study keeps the body warm without burnout.',
-      createdAt: serverTimestamp(),
-    });
-
-    await batch.commit();
-    return { seeded: true };
+    return { seeded: parentWrites > 0 || childWrites > 0 };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'sample_catalog_seed');
   }

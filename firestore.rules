@@ -663,7 +663,7 @@ service cloud.firestore {
           isVerifiedUser() &&
           isValidPostComment(incoming(), postId) &&
           incoming().id == commentId &&
-          incoming().authorId == request.auth.uid &&
+          (incoming().authorId == request.auth.uid || isAdmin()) &&
           incoming().createdAt == request.time &&
           get(/databases/$(database)/documents/posts/$(postId)).data.moderationStatus == 'published';
 
@@ -704,12 +704,21 @@ service cloud.firestore {
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         (
-          isAdmin() || (
+          isAdmin() ||
+          (
             incoming().guruId == request.auth.uid &&
             incoming().registeredCount == 0 &&
             incoming().isSample == false &&
             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'guru' &&
             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verificationStatus == 'verified'
+          ) ||
+          (
+            classId in ['sample_class_1', 'sample_class_2'] &&
+            incoming().isSample == true &&
+            incoming().guruId in ['sample_guru_raghav', 'sample_guru_meera'] &&
+            incoming().status == 'scheduled' &&
+            incoming().registeredCount in [0, 12, 18] &&
+            incoming().meetingLink.matches('^https://meet\\.nritya-sample\\.example/[a-z0-9\\-]+$')
           )
         );
 
@@ -810,13 +819,21 @@ service cloud.firestore {
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         (
-          isAdmin() || (
+          isAdmin() ||
+          (
             incoming().organizerId == request.auth.uid &&
             incoming().moderationStatus == 'pending' &&
             incoming().applicationsCount == 0 &&
             incoming().isSample == false &&
             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'organizer' &&
             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verificationStatus == 'verified'
+          ) ||
+          (
+            eventId in ['sample_event_1', 'sample_event_2', 'sample_event_3'] &&
+            incoming().isSample == true &&
+            incoming().organizerId == 'sample_org_sabha' &&
+            incoming().moderationStatus == 'approved' &&
+            incoming().applicationsCount in [0, 3, 4, 6]
           )
         );
 
@@ -912,11 +929,20 @@ service cloud.firestore {
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         (
-          isAdmin() || (
+          isAdmin() ||
+          (
             incoming().hostId == request.auth.uid &&
             incoming().registeredCount == 0 &&
             incoming().isSample == false &&
             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verificationStatus == 'verified'
+          ) ||
+          (
+            gatheringId in ['sample_gathering_1', 'sample_gathering_2'] &&
+            incoming().isSample == true &&
+            incoming().hostId in ['sample_guru_meera', 'sample_dancer_kavya'] &&
+            incoming().status == 'upcoming' &&
+            incoming().registeredCount in [0, 7, 11] &&
+            incoming().meetingLink.matches('^https://meet\\.nritya-sample\\.example/[a-z0-9\\-]+$')
           )
         );
 
@@ -996,7 +1022,7 @@ service cloud.firestore {
         isVerifiedUser() &&
         isValidGatheringReflection(incoming()) &&
         incoming().id == refId &&
-        incoming().authorId == request.auth.uid &&
+        (incoming().authorId == request.auth.uid || isAdmin()) &&
         incoming().createdAt == request.time &&
         exists(/databases/$(database)/documents/gatherings/$(incoming().gatheringId));
 

@@ -15,7 +15,9 @@ import { NRITYA_IMAGES } from '../data/sampleCatalog';
 import {
   addGatheringReflection,
   createGathering,
+  ensureSampleInteractiveCatalog,
   formatTimestamp,
+  seedSampleCatalogToFirestore,
   subscribeGatheringReflections,
   toggleGatheringRegistration,
   toggleSaveItem,
@@ -62,13 +64,12 @@ const GatheringDetailModal: React.FC<{
       setOpenAuthModal(true);
       return;
     }
-    if (usingPreviewFallback) {
-      showToast('Sample preview reflections require database seeding.', 'info');
-      return;
-    }
     if (content.trim().length < 5) return;
     setSubmitting(true);
     try {
+      if (usingPreviewFallback || gathering.isSample) {
+        await (isAdmin ? seedSampleCatalogToFirestore(false) : ensureSampleInteractiveCatalog());
+      }
       await addGatheringReflection({
         gatheringId: gathering.id,
         author: currentUserProfile,
@@ -230,7 +231,7 @@ export const GatheringsPage: React.FC = () => {
     usingPreviewFallback,
   } = useNritya();
 
-  const [activeDetail, setActiveDetail] = useState<Gathering | null>(null);
+  const [activeDetailId, setActiveDetailId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -254,13 +255,12 @@ export const GatheringsPage: React.FC = () => {
   const canHost =
     isAdmin || currentUserProfile?.verificationStatus === 'verified';
 
+  const activeDetail = gatherings.find((g) => g.id === activeDetailId) || null;
+
   const handleToggleRsvp = async (g: Gathering) => {
     if (!currentUserProfile) {
       setOpenAuthModal(true);
-      return;
-    }
-    if (usingPreviewFallback) {
-      showToast('Sample preview gatherings require Admin database seeding.', 'info');
+      showToast('Please sign in and complete your profile to reserve a spot.', 'info');
       return;
     }
     const existing = gatheringRegistrations.find((r) => r.gatheringId === g.id);
@@ -271,6 +271,9 @@ export const GatheringsPage: React.FC = () => {
     }
     setBusyId(g.id);
     try {
+      if (usingPreviewFallback || g.isSample) {
+        await (isAdmin ? seedSampleCatalogToFirestore(false) : ensureSampleInteractiveCatalog());
+      }
       await toggleGatheringRegistration({
         gathering: g,
         user: currentUserProfile,
@@ -376,21 +379,28 @@ export const GatheringsPage: React.FC = () => {
                     </p>
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (!currentUserProfile) {
                           setOpenAuthModal(true);
                           return;
                         }
-                        if (usingPreviewFallback) return;
-                        toggleSaveItem({
-                          uid: currentUserProfile.uid,
-                          itemType: 'gathering',
-                          itemId: g.id,
-                          title: g.title,
-                          subtitle: g.hostName,
-                          danceForm: g.danceForm,
-                          currentlySaved: isSaved,
-                        });
+                        try {
+                          await toggleSaveItem({
+                            uid: currentUserProfile.uid,
+                            itemType: 'gathering',
+                            itemId: g.id,
+                            title: g.title,
+                            subtitle: g.hostName,
+                            danceForm: g.danceForm,
+                            currentlySaved: isSaved,
+                          });
+                          showToast(
+                            isSaved ? 'Removed from saved items.' : 'Saved to your dashboard.',
+                            'success'
+                          );
+                        } catch (err: any) {
+                          showToast(err?.message || 'Unable to save gathering.', 'error');
+                        }
                       }}
                       aria-label="Save gathering"
                       className="p-1.5 text-[#5A4A57] hover:text-[#4A1D3D]"
@@ -431,39 +441,47 @@ export const GatheringsPage: React.FC = () => {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      disabled={busyId === g.id || g.status !== 'upcoming'}
-                      onClick={() => handleToggleRsvp(g)}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors min-h-[42px] ${
-                        isReg
-                          ? 'bg-[#F3EDE3] text-[#4A1D3D] border border-[#E5DDD2]'
-                          : 'bg-[#4A1D3D] text-[#FAF7F2] hover:bg-[#36132C]'
-                      }`}
-                    >
-                      {isReg ? 'Cancel Spot' : 'Reserve Spot'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveDetail(g)}
-                      className="inline-flex items-center gap-1.5 py-2.5 px-4 rounded-lg border border-[#E5DDD2] text-sm font-medium text-[#1E171D] hover:border-[#4A1D3D] min-h-[42px]"
-                    >
-                      <MessageCircle className="w-4 h-4" /> Prompts & Reflections
-                    </button>
+                      <button
+                        type="button"
+                        disabled={busyId === g.id || g.status !== 'upcoming' || (!isReg && g.registeredCount >= g.capacity)}
+                        onClick={() => handleToggleRsvp(g)}
+                        className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors min-h-[42px] disabled:opacity-60 ${
+                          isReg
+                            ? 'bg-[#F3EDE3] text-[#4A1D3D] border border-[#E5DDD2]'
+                            : 'bg-[#4A1D3D] text-[#FAF7F2] hover:bg-[#36132C]'
+                        }`}
+                      >
+                        {busyId === g.id
+                          ? isReg
+                            ? 'Cancelling...'
+                            : 'Reserving...'
+                          : isReg
+                          ? 'Cancel Spot'
+                          : g.registeredCount >= g.capacity
+                          ? 'Circle Full'
+                          : 'Reserve Spot'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveDetailId(g.id)}
+                        className="inline-flex items-center gap-1.5 py-2.5 px-4 rounded-lg border border-[#E5DDD2] text-sm font-medium text-[#1E171D] hover:border-[#4A1D3D] min-h-[42px]"
+                      >
+                        <MessageCircle className="w-4 h-4" /> Prompts & Reflections
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
 
-      {activeDetail && (
-        <GatheringDetailModal
-          gathering={activeDetail}
-          onClose={() => setActiveDetail(null)}
-        />
-      )}
+        {activeDetail && (
+          <GatheringDetailModal
+            gathering={activeDetail}
+            onClose={() => setActiveDetailId(null)}
+          />
+        )}
 
       {showCreateModal && (
         <div
